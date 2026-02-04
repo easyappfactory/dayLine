@@ -23,7 +23,7 @@ export const GraphView = ({ year, month, data, selectedDate, onSelectDate }: Gra
 
   // 그래프 그리기 상수
   const padding = 20;
-  const height = 320; // CalendarView의 높이에 맞춤 (250px - 32px padding)
+  const height = 300; // CalendarView의 높이에 맞춤 (250px - 32px padding)
   const width = 300; // SVG viewBox width
   
   // 좌표 계산
@@ -62,19 +62,28 @@ export const GraphView = ({ year, month, data, selectedDate, onSelectDate }: Gra
           const x = padding + ((day - 1) / (daysInMonth - 1)) * (width - 2 * padding);
           const y = height - padding - (d.score / 100) * (height - 2 * padding);
           const isSelected = selectedDate === d.date;
+          // 모바일 터치 편의: 보이는 원은 그대로 두고, 터치만 받는 투명 히트 영역
+          const hitRadius = 14;
 
           return (
-            <circle 
-              key={i} 
-              cx={x} 
-              cy={y} 
-              r={isSelected ? "6" : "4"} 
-              fill={isSelected ? colors.blue700 : colors.blue500} 
-              stroke={isSelected ? adaptive.background : 'none'}
-              strokeWidth={isSelected ? "2" : "0"}
-              onClick={() => onSelectDate(d.date)}
-              style={{ cursor: 'pointer' }}
-            />
+            <g key={i}>
+              <circle
+                cx={x}
+                cy={y}
+                r={isSelected ? 6 : 4}
+                fill={isSelected ? colors.blue700 : colors.blue500}
+                stroke={isSelected ? adaptive.background : 'none'}
+                strokeWidth={isSelected ? 2 : 0}
+              />
+              <circle
+                cx={x}
+                cy={y}
+                r={hitRadius}
+                fill="transparent"
+                onClick={() => onSelectDate(d.date)}
+                style={{ cursor: 'pointer' }}
+              />
+            </g>
           );
         })}
       </svg>

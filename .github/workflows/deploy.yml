@@ -27,7 +27,7 @@ jobs:
       
       - name: Setup AIT token
         run: |
-          npx ait token add ${{ secrets.AIT_TOKEN }}
+          npx ait token add --token ${{ secrets.AIT_TOKEN }}
         env:
           AIT_TOKEN: ${{ secrets.AIT_TOKEN }}
       
