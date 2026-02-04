@@ -19,7 +19,7 @@ export const useMonthlyDiaries = (year: number, month: number) => {
     queryKey: DIARY_KEYS.monthly(year, month),
     queryFn: async () => {
       // 백엔드 API는 1-based month를 사용 (1~12)
-      return await getMonthlyDiaries(month + 1);
+      return await getMonthlyDiaries(year, month + 1);
     },
     staleTime: 1000 * 60 * 5, // 5분간 fresh 유지
   });

@@ -25,10 +25,12 @@ interface DiaryCreateRequest {
 /**
  * 일기 목록 조회 (백엔드에서 월별 필터링)
  * 
+ * @param year 년도 (YYYY)
  * @param month 월 (1-12)
  * @returns 일기 목록
  */
 export async function getMonthlyDiaries(
+  year: number,
   month: number
 ): Promise<DiaryEntry[]> {
   const userKey = getUserKey();
@@ -36,10 +38,10 @@ export async function getMonthlyDiaries(
     throw new Error('로그인이 필요합니다.');
   }
 
-  // 백엔드 API: GET /api/v1/scores?month={month}
+  // 백엔드 API: GET /api/v1/scores?year={year}&month={month}
   // Authorization 헤더는 apiRequest 내부에서 처리됨 (user_key가 있을 경우)
   const response = await apiRequest<SuccessResponse<DiaryResDto[]>>(
-    `/v1/scores?month=${month}`,
+    `/v1/scores?year=${year}&month=${month}`,
     {
       method: 'GET',
     }
@@ -72,10 +74,11 @@ export async function getDiaryByDate(date: string): Promise<DiaryEntry | null> {
   }
 
   try {
-    // 날짜에서 월 추출하여 해당 월의 일기 조회
+    // 날짜에서 년도와 월 추출하여 해당 월의 일기 조회
+    const year = parseInt(date.split('-')[0], 10);
     const month = parseInt(date.split('-')[1], 10);
     const response = await apiRequest<SuccessResponse<DiaryResDto[]>>(
-      `/v1/scores?month=${month}`,
+      `/v1/scores?year=${year}&month=${month}`,
       {
         method: 'GET',
       }
