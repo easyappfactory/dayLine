@@ -1,13 +1,12 @@
-// 일기 관련 API 서비스
-// 백엔드 API 스펙 기준
-
 import { apiRequest } from './api';
-import { getUserKey } from './tossAuth';
 import type { DiaryEntry } from '../types/diary';
 import type { SuccessResponse } from '../types/api';
+import { getAnonymousKeyHash } from './tossAuth';
 
 // 백엔드 응답 DTO
 interface DiaryResDto {
+  diaryId?: number;
+  id?: number;
   line: string;      // 일기 내용
   score: number;     // 감정 점수
   date: string;      // YYYY-MM-DD
@@ -23,42 +22,45 @@ interface DiaryCreateRequest {
 }
 
 /**
- * 일기 목록 조회 (백엔드에서 월별 필터링)
- * 
- * @param year 년도 (YYYY)
- * @param month 월 (1-12)
- * @returns 일기 목록
+ * V2: targetDate 기준 최근 1년치 일기 목록 조회
+ *
+ * - targetDate 미입력 시 오늘 날짜
+ * - 범위: targetDate가 속한 달의 11개월 전 같은 달 1일 ~ targetDate가 속한 달의 마지막 날
  */
-export async function getMonthlyDiaries(
-  year: number,
-  month: number
-): Promise<DiaryEntry[]> {
-  const userKey = getUserKey();
-  if (!userKey) {
-    throw new Error('로그인이 필요합니다.');
-  }
+export async function getDiaryWindowV2(targetDate?: string): Promise<{
+  diaries: DiaryEntry[];
+  count: number;
+  targetDate: string;
+}> {
+  const hash = getAnonymousKeyHash();
+  if (!hash) throw new Error('로그인이 필요해요. (익명 키가 없어요)');
 
-  // 백엔드 API: GET /api/v1/scores?year={year}&month={month}
-  // Authorization 헤더는 apiRequest 내부에서 처리됨 (user_key가 있을 경우)
-  const response = await apiRequest<SuccessResponse<DiaryResDto[]>>(
-    `/v1/scores?year=${year}&month=${month}`,
-    {
-      method: 'GET',
-    }
-  );
+  const query = targetDate ? `?targetDate=${encodeURIComponent(targetDate)}` : '';
+  const response = await apiRequest<
+    SuccessResponse<{
+      diaries: DiaryResDto[];
+      count: number;
+      targetDate: string;
+    }>
+  >(`/v2/diarys${query}`, {
+    method: 'GET',
+    headers: {
+      'X-Anonymous-Key': hash,
+    },
+  });
 
-  // 데이터 추출
-  const data = response.data || [];
-
-  // DTO를 클라이언트 인터페이스로 변환
-  const diaries: DiaryEntry[] = data.map(dto => ({
-    date: dto.date,
-    line: dto.line,
-    score: dto.score,
-    description: dto.description,
-  }));
-
-  return diaries;
+  const data = response.data ?? { diaries: [], count: 0, targetDate: targetDate ?? new Date().toISOString().slice(0, 10) };
+  return {
+    diaries: (data.diaries ?? []).map(dto => ({
+      diaryId: dto.diaryId ?? dto.id,
+      date: dto.date,
+      line: dto.line,
+      score: dto.score,
+      description: dto.description,
+    })),
+    count: data.count ?? (data.diaries?.length ?? 0),
+    targetDate: data.targetDate ?? (targetDate ?? new Date().toISOString().slice(0, 10)),
+  };
 }
 
 /**
@@ -68,33 +70,10 @@ export async function getMonthlyDiaries(
  * @returns 일기 데이터 또는 null
  */
 export async function getDiaryByDate(date: string): Promise<DiaryEntry | null> {
-  const userKey = getUserKey();
-  if (!userKey) {
-    throw new Error('로그인이 필요합니다.');
-  }
-
   try {
-    // 날짜에서 년도와 월 추출하여 해당 월의 일기 조회
-    const year = parseInt(date.split('-')[0], 10);
-    const month = parseInt(date.split('-')[1], 10);
-    const response = await apiRequest<SuccessResponse<DiaryResDto[]>>(
-      `/v1/scores?year=${year}&month=${month}`,
-      {
-        method: 'GET',
-      }
-    );
-
-    const data = response.data || [];
-    const diary = data.find(dto => dto.date === date);
-    
-    if (diary) {
-      return {
-        date: diary.date,
-        line: diary.line,
-        score: diary.score,
-        description: diary.description,
-      };
-    }
+    const { diaries } = await getDiaryWindowV2(date);
+    const diary = diaries.find(d => d.date === date);
+    if (diary) return diary;
     return null;
   } catch {
     // 에러 발생 시 null 반환
@@ -114,12 +93,10 @@ export async function saveDiary(data: {
   emotion: number;
   description?: string;
 }): Promise<DiaryEntry> {
-  const userKey = getUserKey();
-  if (!userKey) {
-    throw new Error('로그인이 필요합니다.');
-  }
+  const hash = getAnonymousKeyHash();
+  if (!hash) throw new Error('로그인이 필요해요. (익명 키가 없어요)');
 
-  // 백엔드 API: POST /api/v1/scores
+  // V2: POST /v2/diarys (X-Anonymous-Key)
   const requestBody: DiaryCreateRequest = {
     line: data.content,
     score: data.emotion,
@@ -128,11 +105,12 @@ export async function saveDiary(data: {
   };
 
   await apiRequest<SuccessResponse<null>>(
-    '/v1/scores',
+    '/v2/diarys',
     {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'X-Anonymous-Key': hash,
       },
       body: JSON.stringify(requestBody),
     }
@@ -148,8 +126,51 @@ export async function saveDiary(data: {
 }
 
 /**
+ * V2: 일기 수정
+ * diaryId + X-Anonymous-Key로 소유권 확인 후 수정 (PATCH /v2/diarys/{diaryId})
+ *
+ * @param data 수정할 일기 데이터
+ * @returns 수정된 일기
+ */
+export async function updateDiary(data: {
+  diaryId: number;
+  date: string;
+  content: string;
+  emotion: number;
+  description?: string;
+}): Promise<DiaryEntry> {
+  const hash = getAnonymousKeyHash();
+  if (!hash) throw new Error('로그인이 필요해요. (익명 키가 없어요)');
+
+  await apiRequest<SuccessResponse<null>>(
+    `/v2/diarys/${data.diaryId}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Anonymous-Key': hash,
+      },
+      body: JSON.stringify({
+        line: data.content,
+        score: data.emotion,
+        date: data.date,
+        ...(data.description !== undefined ? { description: data.description } : {}),
+      }),
+    }
+  );
+
+  return {
+    diaryId: data.diaryId,
+    date: data.date,
+    line: data.content,
+    score: data.emotion,
+    description: data.description,
+  };
+}
+
+/**
  * 일기 삭제
- * 
+ *
  * @deprecated 백엔드에서 삭제 API를 제공하지 않습니다.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

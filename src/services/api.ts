@@ -29,12 +29,6 @@ export async function apiRequest<T>(
     'Content-Type': 'application/json',
   };
 
-  // userKey가 있으면 Authorization 헤더에 추가
-  const userKey = localStorage.getItem('user_key');
-  if (userKey) {
-    defaultHeaders['Authorization'] = userKey;
-  }
-
   const config: RequestInit = {
     ...options,
     headers: {

@@ -1,11 +1,10 @@
 // 토스 로그인 API 서비스
-import { appLogin } from '@apps-in-toss/web-framework';
+import { appLogin, getAnonymousKey } from '@apps-in-toss/web-framework';
 import type {
   TossLoginRequest,
   TossLoginData,
 } from '../types/tossAuth';
-import type { SuccessResponse } from '../types/api';
-//import { apiRequest } from './api';
+import { getMigrationStatusMapped } from './migration';
 
 /**
  * 토스 앱 환경인지 확인
@@ -13,6 +12,86 @@ import type { SuccessResponse } from '../types/api';
 function isTossAppEnvironment(): boolean {
   return typeof window !== 'undefined' && 
     'ReactNativeWebView' in window;
+}
+
+function isLocalGraniteEnvironment(): boolean {
+  if (typeof window === 'undefined') return false;
+  const w = window as unknown as { __CONSTANT_HANDLER_MAP?: Record<string, unknown> };
+  return w.__CONSTANT_HANDLER_MAP?.deploymentId === 'local' || import.meta.env.DEV;
+}
+
+export function saveAnonymousKeyHash(hash: string) {
+  localStorage.setItem('anonymous_key', hash);
+}
+
+export function getAnonymousKeyHash(): string | null {
+  return localStorage.getItem('anonymous_key');
+}
+
+function parsePositiveUserKey(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value);
+  }
+  if (typeof value === 'string') {
+    const n = Number(value.trim().replace(/^Bearer\s+/i, ''));
+    if (Number.isFinite(n) && n > 0) return Math.trunc(n);
+  }
+  return null;
+}
+
+/**
+ * Toss 로그인 응답 본문에서 userKey 추출 (백엔드 스키마 변형 대응)
+ */
+function extractUserKeyFromJsonBody(body: unknown): number | null {
+  if (body === null || body === undefined) return null;
+
+  const direct = parsePositiveUserKey(body);
+  if (direct !== null) return direct;
+
+  if (typeof body !== 'object') return null;
+  const o = body as Record<string, unknown>;
+
+  const nestedData = o.data;
+  const candidates: unknown[] = [
+    o.userKey,
+    o.user_key,
+    nestedData,
+  ];
+
+  if (nestedData !== null && typeof nestedData === 'object') {
+    const d = nestedData as Record<string, unknown>;
+    candidates.push(d.userKey, d.user_key);
+  }
+
+  for (const c of candidates) {
+    const n = parsePositiveUserKey(c);
+    if (n !== null) return n;
+  }
+
+  if (typeof nestedData === 'string') {
+    const t = nestedData.trim();
+    if (/^\d+$/.test(t)) return parsePositiveUserKey(t);
+    try {
+      return extractUserKeyFromJsonBody(JSON.parse(nestedData));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * 응답 헤더 Authorization(또는 authorization)에서 userKey 추출.
+ * 주의: CORS 환경에서는 서버가 Access-Control-Expose-Headers에 해당 헤더를 넣지 않으면
+ * 브라우저가 헤더 값을 JS에 노출하지 않아 항상 null이 될 수 있습니다.
+ */
+function extractUserKeyFromResponseHeaders(response: Response): number | null {
+  const raw =
+    response.headers.get('Authorization') ??
+    response.headers.get('authorization');
+  if (!raw) return null;
+  return parsePositiveUserKey(raw);
 }
 
 /**
@@ -109,50 +188,36 @@ export async function loginToBackend(
       throw new Error(message);
     }
 
-    // 1. JSON Body 파싱 시도
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const body: SuccessResponse<any> | any = await response.json();
+    const body: unknown = await response.json();
 
     console.log('[DEBUG] 백엔드 응답 Body:', body);
 
-    // Case 1: Body에서 userKey 찾기
-    // 백엔드 응답이 숫자형 userKey를 그대로 줄 수도 있고, 객체 안에 있을 수도 있음
-    let userKeyFromBody = body.data?.userKey || body.userKey || body.data;
-
-    // 만약 body 자체가 숫자라면 (예: 456643352)
-    if (typeof body === 'number') {
-        userKeyFromBody = body;
+    const fromBody = extractUserKeyFromJsonBody(body);
+    if (fromBody !== null) {
+      console.log('[Step 2] Body에서 userKey 획득:', fromBody);
+      return fromBody;
     }
 
-    if (typeof userKeyFromBody === 'number') {
-      console.log('[Step 2] Body에서 userKey 획득:', userKeyFromBody);
-      return userKeyFromBody;
-    }
-
-    // Case 2: Header에서 확인 (Authorization 또는 X-User-Key)
-    // 백엔드에서 "Authorization" 헤더에 값(숫자)만 넣어서 보냄 (Bearer 없음)
-    const authHeader = response.headers.get('Authorization');
-    
-    console.log('[Step 2] 헤더 확인:', { 
-      Authorization: authHeader, 
+    const fromHeader = extractUserKeyFromResponseHeaders(response);
+    console.log('[Step 2] 헤더 확인:', {
+      Authorization: response.headers.get('Authorization'),
+      authorization: response.headers.get('authorization'),
     });
 
-    const headerValue = authHeader;
-
-    if (headerValue) {
-      // Bearer 없이 숫자만 오므로 숫자만 추출 시도
-      // 예: "12345" -> 12345
-      const userKey = Number(headerValue.trim());
-      
-      if (!isNaN(userKey) && userKey > 0) {
-        console.log('Header에서 userKey 획득:', userKey);
-        return userKey;
-      }
+    if (fromHeader !== null) {
+      console.log('[Step 2] Header에서 userKey 획득:', fromHeader);
+      return fromHeader;
     }
-    
-    // Case 3: 둘 다 없는 경우
-    console.warn('백엔드 로그인 응답에 userKey가 없습니다.', { body, headers: Object.fromEntries(response.headers.entries()) });
-    throw new Error('로그인 응답에서 사용자 식별 키(userKey)를 찾을 수 없습니다.');
+
+    console.warn('백엔드 로그인 응답에 userKey가 없습니다.', {
+      body,
+      headerKeys: [...response.headers.keys()],
+    });
+    throw new Error(
+      '로그인 응답에서 사용자 식별 키(userKey)를 찾을 수 없습니다. ' +
+        '웹/미니앱에서는 Authorization 응답 헤더가 CORS 때문에 스크립트에 보이지 않을 수 있어요. ' +
+        '백엔드에서 JSON(data 등)으로 userKey를 내려주거나, Access-Control-Expose-Headers에 Authorization을 포함해 주세요.'
+    );
     
   } catch (error) {
     console.error('[Step 2] 로그인 API 요청 실패:', error);
@@ -169,7 +234,92 @@ export async function loginToBackend(
 }
 
 /**
- * 통합 로그인 플로우
+ * 익명 키 기반 로그인 플로우 (getAnonymousKey)
+ * 사용자 인증 없이 디바이스 고유 hash를 통해 자동 로그인합니다.
+ */
+export async function loginWithAnonymousKey(): Promise<string> {
+  console.log('[Anonymous Login] getAnonymousKey 호출 시작');
+
+  // 로컬/개발 환경(Granite local 포함)에서는 네이티브 브릿지가 일부 미구현일 수 있어 mock 사용
+  // (예: getAnonymousKey가 "load failed"로 실패)
+  if (!isTossAppEnvironment() || isLocalGraniteEnvironment()) {
+    console.warn('[Anonymous Login] 로컬/브라우저 환경 - mock hash 사용');
+    const mockHash = 'LOCAL_MOCK_HASH';
+    saveAnonymousKeyHash(mockHash);
+    return mockHash;
+  }
+
+  const result = await getAnonymousKey();
+
+  if (result === undefined) {
+    throw new Error('앱 버전이 낮아 익명 로그인을 지원하지 않아요. 앱을 업데이트해주세요.');
+  }
+
+  if (result === 'ERROR') {
+    throw new Error('익명 로그인 중 오류가 발생했어요. 다시 시도해주세요.');
+  }
+
+  const { hash } = result;
+  saveAnonymousKeyHash(hash);
+
+  console.log('[Anonymous Login] 완료');
+  return hash;
+}
+
+// V2에서는 hash(X-Anonymous-Key)로 일기 API를 호출하므로, 별도의 익명 로그인 API가 필요하지 않습니다.
+
+/**
+ * 기존 토스 로그인 데이터 병합 플로우
+ * 1. appLogin()으로 기존 Toss 계정의 userKey 획득
+ * 2. 현재 익명 userKey와 기존 데이터를 병합하는 Mock API 호출
+ */
+export type MergeDataWithTossResult = 'ALREADY_MAPPED' | 'LINKED';
+
+export async function mergeDataWithToss(): Promise<MergeDataWithTossResult> {
+  console.log('[Data Merge] 기존 데이터 병합 시작');
+
+  const hash = getAnonymousKeyHash();
+  if (!hash) throw new Error('익명 키가 없어 기존 데이터를 불러올 수 없어요.');
+
+  // 0) 이미 매핑된 유저면 추가 연동 불필요 (불필요한 Toss 로그인 방지)
+  const isMapped = await getMigrationStatusMapped(hash);
+  if (isMapped) {
+    console.log('[Data Merge] 이미 매핑된 사용자 - link 생략');
+    return 'ALREADY_MAPPED';
+  }
+
+  // 1) 미매핑이면 Toss 로그인으로 userKey 획득
+  const { authorizationCode, referrer } = await getTossAuthorizationCode();
+  const oldUserKey = await loginToBackend(authorizationCode, referrer);
+
+  const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/dayline/api';
+  const response = await fetch(`${API_BASE_URL}/v2/auth/migration/link`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: String(oldUserKey),
+    },
+    body: JSON.stringify({
+      hash,
+      authorizationCode,
+      referrer,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(errorText || '기존 데이터 연결(마이그레이션)에 실패했어요.');
+  }
+
+  console.log('[Data Merge] 병합 완료');
+  return 'LINKED';
+}
+
+// V2에서는 /v2/auth/migration/link로 userKey와 hash를 연결합니다.
+
+/**
+ * 통합 로그인 플로우 (기존 Toss 로그인 - 데이터 병합 시에만 사용)
+ * @deprecated 신규 로그인은 loginWithAnonymousKey()를 사용하세요.
  */
 export async function loginWithToss() {
   console.log('토스 로그인 플로우 시작');

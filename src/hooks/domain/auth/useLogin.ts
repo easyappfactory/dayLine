@@ -1,9 +1,14 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { loginWithToss } from '../../../services/tossAuth';
+import { useQueryClient } from '@tanstack/react-query';
+import { loginWithAnonymousKey } from '../../../services/tossAuth';
+import { getDiaryWindowV2 } from '../../../services/diary';
+import { DIARY_KEYS } from '../diary/useDiaryData';
+import { formatDate } from '../../../utils/dateUtils';
 
 export const useLogin = () => {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [isLoading, setIsLoading] = useState(false);
 
   const handleLogin = async () => {
@@ -12,29 +17,37 @@ export const useLogin = () => {
     setIsLoading(true);
 
     try {
-      // 토스 로그인 플로우 실행
-      await loginWithToss();
-      
-      console.log('로그인 성공');
-      // WritePage로 이동
-      navigate('/write');
+      // 익명 키(getAnonymousKey) 기반 로그인 - 사용자 인증 불필요
+      await loginWithAnonymousKey();
+
+      console.log('익명 로그인 성공');
+
+      // 오늘 일기 존재 여부 확인 → 라우팅 분기
+      // React Query 캐시를 priming 하여 Write/Stats에서 중복 요청 방지
+      let navigateTo = '/write';
+      try {
+        const windowData = await getDiaryWindowV2();
+        queryClient.setQueryData(DIARY_KEYS.window(), windowData);
+
+        const todayStr = formatDate(new Date(), '-');
+        const hasTodayDiary = windowData?.diaries?.some(d => d.date === todayStr) ?? false;
+        if (hasTodayDiary) {
+          navigateTo = '/stats';
+        }
+      } catch (fetchError) {
+        // 네트워크 오류 시 /write로 기본 이동 (입력 가능 상태)
+        console.warn('[Login] 일기 조회 실패, /write로 이동:', fetchError);
+      }
+
+      navigate(navigateTo);
     } catch (error) {
       console.error('로그인 실패:', error);
-      
-      const errorMessage = error instanceof Error 
-        ? error.message 
-        : '로그인에 실패했습니다. 다시 시도해주세요.';
-      
+
+      const errorMessage = error instanceof Error
+        ? error.message
+        : '로그인에 실패했어요. 다시 시도해주세요.';
+
       alert(errorMessage);
-      
-      // [디버깅] 상세 에러 정보
-      // if (error instanceof Error) {
-      //   alert(`[에러]\n${error.message}\n\n[Stack]\n${error.stack?.slice(0, 200) || 'No stack'}`);
-      // } else if (typeof error === 'object' && error !== null) {
-      //   alert(`[에러 객체]\n${JSON.stringify(error, null, 2)}`);
-      // } else {
-      //   alert(`[알 수 없는 에러]\n${String(error)}`);
-      // }
     } finally {
       setIsLoading(false);
     }
@@ -42,5 +55,3 @@ export const useLogin = () => {
 
   return { handleLogin, isLoading };
 };
-
-
