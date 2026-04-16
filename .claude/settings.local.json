@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(npm install:*)",
+      "mcp__apps-in-toss__search_docs",
+      "mcp__apps-in-toss__search_tds_rn_docs",
+      "mcp__apps-in-toss__get_doc",
+      "mcp__apps-in-toss__get_tds_rn_doc",
+      "mcp__apps-in-toss__search_tds_web_docs",
+      "mcp__apps-in-toss__get_tds_web_doc",
+      "Bash(npm run:*)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

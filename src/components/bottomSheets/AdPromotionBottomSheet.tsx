@@ -18,11 +18,6 @@ export const AdPromotionBottomSheet = ({
           광고를 보는 동안 AI가 감정을 분석해요
         </BottomSheet.Header>
       }
-      headerDescription={
-      <BottomSheet.HeaderDescription>
-        작성한 일기는 수정하거나 삭제할 수 없어요
-        </BottomSheet.HeaderDescription>
-        }
       open={open}
       onClose={onClose}
       cta={
