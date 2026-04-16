@@ -35,21 +35,9 @@ export default function Page() {
         <Paragraph.Text>사용 방법</Paragraph.Text>
       </Post.H2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-        <Stepper staggerDelay={0.5}>
+        <Stepper staggerDelay={0}>
         <StepperRow
           left={<StepperRow.NumberIcon number={1} />}
-          center={
-            <div style={{ textAlign: 'left' }}>
-              <StepperRow.Texts
-                type="A"
-                title="토스로 로그인해요"
-                description="이름, 전화번호 같은 개인정보는 수집하지 않아요"
-              />
-            </div>
-          }
-        />
-        <StepperRow
-          left={<StepperRow.NumberIcon number={2} />}
           center={
             <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
               <StepperRow.Texts
@@ -61,7 +49,7 @@ export default function Page() {
           }
         />
         <StepperRow
-          left={<StepperRow.NumberIcon number={3} />}
+          left={<StepperRow.NumberIcon number={2} />}
           center={
             <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
               <StepperRow.Texts
@@ -73,7 +61,7 @@ export default function Page() {
           }
         />
         <StepperRow
-          left={<StepperRow.NumberIcon number={4} />}
+          left={<StepperRow.NumberIcon number={3} />}
           center={
             <div style={{ textAlign: 'left', whiteSpace: 'nowrap' }}>
               <StepperRow.Texts
