@@ -14,6 +14,7 @@ interface DiaryInputFormProps {
   isLoading: boolean;
   isChecking: boolean;
   onSubmit: () => void;
+  submitLabel?: string;
 }
 
 // 랜덤 팁 문구 목록
@@ -43,8 +44,8 @@ export const DiaryInputForm = ({
   hasTodayDiary,
   isSubmittable,
   isLoading,
-  isChecking,
   onSubmit,
+  submitLabel,
 }: DiaryInputFormProps) => {
   // 랜덤 팁 상태 (컴포넌트 마운트 시 랜덤 선택)
   const [tipMessage] = useState(getRandomTip);
@@ -60,7 +61,7 @@ export const DiaryInputForm = ({
           value={value}
           onChange={onChange}
           placeholder={hasTodayDiary ? "오늘의 일기를 이미 작성했어요" : "50자 이내로 입력해주세요"}
-          disabled={hasTodayDiary || isChecking || isLoading}
+          disabled={hasTodayDiary || isLoading}
           style={{ textAlign: 'left' }}
         />
         <div style={{ 
@@ -93,13 +94,13 @@ export const DiaryInputForm = ({
       </div>
       <Button 
         display="block" 
-        disabled={(!hasTodayDiary && (!isSubmittable || isLoading || isChecking))} 
+        disabled={(!hasTodayDiary && (!isSubmittable || isLoading))}
         onClick={onSubmit}
         variant={hasTodayDiary ? "weak" : "fill"}
         size="large"
         style={{ width: '100%' }}
       >
-        {hasTodayDiary ? '그래프 확인하기' : (isLoading ? '분석하고 있어요' : '작성하기')}
+        {hasTodayDiary ? '그래프 확인하기' : (isLoading ? '분석하고 있어요' : (submitLabel ?? '작성하기'))}
       </Button>
     </div>
   );
